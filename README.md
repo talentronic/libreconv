@@ -1,4 +1,4 @@
-This gem is unmaintained. Please let me know if you want to maintain it.
+This gem is forked from ricn and maintained by Hospitality Online.
 
 # Libreconv
 
