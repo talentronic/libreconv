@@ -31,10 +31,17 @@ module Libreconv
       $stdout.reopen File.new('/dev/null', 'w')
       Dir.mktmpdir { |target_path|
         pid = Spoon.spawnp(@soffice_command, "--headless", "--convert-to", @convert_to, @source, "--outdir", target_path)
-        Process.waitpid(pid)
-        $stdout.reopen orig_stdout
-        target_tmp_file = "#{target_path}/#{File.basename(@source, ".*")}.#{File.basename(@convert_to, ":*")}"
-        FileUtils.cp target_tmp_file, @target
+        begin
+          Timeout.timeout(5) do
+            Process.wait pid
+            $stdout.reopen orig_stdout
+            target_tmp_file = "#{target_path}/#{File.basename(@source, ".*")}.#{File.basename(@convert_to, ":*")}"
+            FileUtils.cp target_tmp_file, @target
+          end
+        rescue Timeout::Error => e
+          Process.kill 9, pid
+          raise e
+        end
       }
     end
 
