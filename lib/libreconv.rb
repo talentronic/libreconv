@@ -32,7 +32,7 @@ module Libreconv
       Dir.mktmpdir { |target_path|
         pid = Spoon.spawnp(@soffice_command, "--headless", "--convert-to", @convert_to, @source, "--outdir", target_path)
         begin
-          Timeout.timeout(5) do
+          Timeout.timeout(1) do
             Process.wait pid
             $stdout.reopen orig_stdout
             target_tmp_file = "#{target_path}/#{File.basename(@source, ".*")}.#{File.basename(@convert_to, ":*")}"
