@@ -6,6 +6,7 @@ require 'net/http'
 require 'tmpdir'
 require 'securerandom'
 require 'open3'
+require 'timeout'
 
 # Convert office documents using LibreOffice / OpenOffice to one of their supported formats.
 module Libreconv
@@ -19,8 +20,8 @@ module Libreconv
   # @raise [URI::Error]             When URI parsing error.
   # @raise [Net::ProtocolError]     If source URL checking failed.
   # @raise [ConversionFailedError]  When soffice command execution error.
-  def self.convert(source, target, soffice_command = nil, convert_to = nil)
-    Converter.new(source, target, soffice_command, convert_to).convert
+  def self.convert(source, target, soffice_command = nil, convert_to = nil, timeout = nil)
+    Converter.new(source, target, soffice_command, convert_to, timeout).convert
   end
 
   class Converter
@@ -34,11 +35,12 @@ module Libreconv
     # @raise [IOError]                If invalid source file/URL or soffice command not found.
     # @raise [URI::Error]             When URI parsing error.
     # @raise [Net::ProtocolError]     If source URL checking failed.
-    def initialize(source, target, soffice_command = nil, convert_to = nil)
+    def initialize(source, target, soffice_command = nil, convert_to = nil, timeout = nil)
       @source = check_source_type(source)
       @target = target
       @soffice_command = soffice_command || which('soffice') || which('soffice.bin')
       @convert_to = convert_to || 'pdf'
+      @timeout = timeout || 10
 
       ensure_soffice_exists
     end
@@ -64,18 +66,35 @@ module Libreconv
     # @return [String]
     # @raise [ConversionFailedError]  When soffice command execution error.
     def execute_command(command, target_path)
-      output, error, status =
+      stdin, stdout, stderr, process_thread =
         if RUBY_PLATFORM =~ /java/
-          Open3.capture3(*command)
+          Open3.popen3(*command)
         else
-          Open3.capture3(command_env, *command, unsetenv_others: true)
+          Open3.popen3(command_env, *command, unsetenv_others: true)
         end
+
+      # Timeout block set to @timeout seconds
+      status, output, error = Timeout.timeout(@timeout) do
+        [process_thread.value, stdout.read, stderr.read]
+      end
 
       target_tmp_file = File.join(target_path, target_filename)
       return target_tmp_file if status.success? && File.exist?(target_tmp_file)
 
       raise ConversionFailedError,
             "Conversion failed! Output: #{output.strip.inspect}, Error: #{error.strip.inspect}"
+
+    rescue Timeout::Error
+      # Kill the process if it times out
+      Process.kill("KILL", process_thread.pid)
+      raise ConversionFailedError,
+            "Conversion timed out! Command exceeded #{@timeout} seconds and was killed."
+
+    ensure
+      # Ensure all resources are properly closed
+      stdin.close if stdin
+      stdout.close if stdout
+      stderr.close if stderr
     end
 
     # @return [Hash]
